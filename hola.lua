@@ -8,6 +8,7 @@ local Players         = game:GetService("Players")
 local HttpService     = game:GetService("HttpService")
 local UIS             = game:GetService("UserInputService")
 local TeleportService = game:GetService("TeleportService")
+local VirtualUser     = game:GetService("VirtualUser")
 local Player          = Players.LocalPlayer
 local MyID            = Player.UserId
 local MyName          = Player.Name
@@ -58,8 +59,9 @@ local DEFAULT_CONFIG = {
     webhookOn    = true,
     pingEveryone = true,
     toggleKey    = "RightControl",
-    autoRejoin   = true,
-    rejoinMins   = 15,
+    autoRejoin   = false,   -- desactivado por defecto
+    rejoinMins   = 10,      -- 10 minutos por defecto
+    antiAfk      = true,    -- anti-afk activado por defecto
 }
 
 local cfg = {}
@@ -105,6 +107,47 @@ local updateStats
 local setStatus
 
 -- ============================================================
+-- ANTI-AFK
+-- ============================================================
+local afkThread = nil
+
+local function stopAntiAfk()
+    if afkThread then
+        pcall(function() task.cancel(afkThread) end)
+        afkThread = nil
+    end
+end
+
+local function startAntiAfk()
+    stopAntiAfk()
+    afkThread = task.spawn(function()
+        while cfg.antiAfk do
+            -- Esperar 4 minutos entre cada acción (el kick es a los 14min)
+            task.wait(240)
+            if not cfg.antiAfk then break end
+
+            -- Método 1: VirtualUser (silencioso, no mueve la cámara)
+            pcall(function()
+                VirtualUser:Button2Down(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+                task.wait(0.1)
+                VirtualUser:Button2Up(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+            end)
+
+            -- Método 2 como respaldo: saltar el personaje
+            pcall(function()
+                local char = Player.Character
+                if char then
+                    local hum = char:FindFirstChildOfClass("Humanoid")
+                    if hum then
+                        hum.Jump = true
+                    end
+                end
+            end)
+        end
+    end)
+end
+
+-- ============================================================
 -- AUTO REJOIN
 -- ============================================================
 local rejoinActive    = false
@@ -135,19 +178,14 @@ local function doRejoin()
 
     task.wait(2)
 
-    -- Queue hola.lua to run after teleport (Xeno)
     if queue_on_teleport then
-        local ok, content = pcall(function()
-            return readfile("autoexec/hola.lua")
+        pcall(function()
+            queue_on_teleport([[
+                loadstring(game:HttpGet("https://raw.githubusercontent.com/wh1zy69/WS/refs/heads/main/hola.lua", true))()
+            ]])
         end)
-        if ok and content and content ~= "" then
-            pcall(function()
-                queue_on_teleport(content)
-            end)
-        end
     end
 
-    -- Rejoin same server
     local placeId = game.PlaceId
     local jobId   = game.JobId
 
@@ -156,7 +194,7 @@ local function doRejoin()
     end)
     if not ok then
         pcall(function()
-            TeleportService:Teleport(placeId, Player)
+            TeleportService:Teleport(placeId)
         end)
     end
 end
@@ -199,31 +237,47 @@ local function doTP(sword)
     if isTping then return end
     isTping = true
 
-    local char = Player.Character
-    if not char then isTping = false; return end
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    if not hrp then isTping = false; return end
+    local ok, err = pcall(function()
+        local char = Player.Character
+        if not char then error("no char") end
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if not hrp then error("no hrp") end
 
-    local originalCF = hrp.CFrame
-    local targetCF   = CFrame.new(sword:GetPivot().Position + Vector3.new(0, 5, 0))
+        -- Guardar posición original ANTES de moverse
+        local originalCF = hrp.CFrame
 
-    pcall(function() char:PivotTo(targetCF) end)
+        -- Obtener posición de la espada
+        local swordPos = sword:GetPivot().Position + Vector3.new(0, 5, 0)
 
-    stats.tpCount += 1
-    updateStats()
-    setStatus("Teleported! Returning in 1s...")
+        -- TP hacia la espada
+        hrp.CFrame = CFrame.new(swordPos)
+        stats.tpCount += 1
+        updateStats()
+        setStatus("Teleported! Returning in 1s...")
 
-    task.wait(1)
+        task.wait(1)
 
-    local char2 = Player.Character
-    if char2 then
+        -- Re-obtener char por si hubo cambios durante la espera
+        local char2 = Player.Character
+        if not char2 then error("no char2") end
         local hrp2 = char2:FindFirstChild("HumanoidRootPart")
-        if hrp2 then
-            pcall(function() char2:PivotTo(originalCF) end)
-            setStatus("Returned. Waiting for swords...")
+        if not hrp2 then error("no hrp2") end
+
+        -- Forzar el return con varios intentos para asegurar que se aplica
+        for i = 1, 5 do
+            hrp2.CFrame = originalCF
+            task.wait(0.1)
         end
+
+        setStatus("Returned. Waiting for swords...")
+    end)
+
+    if not ok then
+        warn("[Whizy] doTP error: " .. tostring(err))
+        setStatus("TP error — check console")
     end
 
+    -- SIEMPRE liberar el lock pase lo que pase
     task.wait(0.3)
     isTping = false
 end
@@ -255,6 +309,8 @@ local TabStats    = Window:CreateTab("Statistics",  "bar-chart-2")
 -- TAB: DETECTOR
 -- ============================================================
 TabDetector:CreateSection("Enchant Filters")
+TabDetector:CreateLabel("Filtra espadas que tengan TODOS los enchants activos.")
+TabDetector:CreateLabel("Pon 'None' en los slots que no quieras usar.")
 
 local DD1 = TabDetector:CreateDropdown({
     Name            = "Enchant 1",
@@ -327,18 +383,33 @@ setStatus = function(text)
 end
 
 -- ============================================================
--- TAB: AUTO-REJOIN
+-- TAB: AUTO-REJOIN (incluye Anti-AFK)
 -- ============================================================
-TabRejoin:CreateSection("Auto-Rejoin Settings")
-TabRejoin:CreateLabel("Rejoins the SAME server every X minutes.")
-TabRejoin:CreateLabel("Uses queue_on_teleport to re-run hola.lua after rejoin.")
+TabRejoin:CreateSection("Anti-AFK")
+TabRejoin:CreateLabel("Salta cada 4 min para evitar el kick por AFK (14 min).")
 
-LBL_RejoinStatus = TabRejoin:CreateLabel(
-    cfg.autoRejoin
-        and ("Auto-Rejoin: ON — next in "
-            .. string.format("%02d:%02d", cfg.rejoinMins, 0))
-        or "Auto-Rejoin: OFF"
-)
+local TG_AntiAfk = TabRejoin:CreateToggle({
+    Name         = "Enable Anti-AFK",
+    CurrentValue = cfg.antiAfk,
+    Flag         = "TG_AntiAfk",
+    Callback     = function(v)
+        cfg.antiAfk = v
+        saveCfg()
+        if v then
+            startAntiAfk()
+            Rayfield:Notify({ Title="Anti-AFK ON", Content="Saltará cada 4 minutos.", Duration=3, Image="check-circle" })
+        else
+            stopAntiAfk()
+            Rayfield:Notify({ Title="Anti-AFK OFF", Content="Anti-AFK desactivado.", Duration=3, Image="x-circle" })
+        end
+    end,
+})
+
+TabRejoin:CreateSection("Auto-Rejoin Settings")
+TabRejoin:CreateLabel("Hace rejoin al mismo servidor cada X minutos.")
+TabRejoin:CreateLabel("Autoexec re-ejecuta el script tras el rejoin.")
+
+LBL_RejoinStatus = TabRejoin:CreateLabel("Auto-Rejoin: OFF")
 
 local TG_AutoRejoin = TabRejoin:CreateToggle({
     Name         = "Enable Auto-Rejoin",
@@ -351,7 +422,7 @@ local TG_AutoRejoin = TabRejoin:CreateToggle({
             startRejoin()
             Rayfield:Notify({
                 Title    = "Auto-Rejoin ON",
-                Content  = "Will rejoin in " .. cfg.rejoinMins .. " minutes.",
+                Content  = "Rejoin en " .. cfg.rejoinMins .. " minutos.",
                 Duration = 4,
                 Image    = "check-circle",
             })
@@ -359,7 +430,7 @@ local TG_AutoRejoin = TabRejoin:CreateToggle({
             stopRejoin()
             Rayfield:Notify({
                 Title    = "Auto-Rejoin OFF",
-                Content  = "Auto-Rejoin disabled.",
+                Content  = "Auto-Rejoin desactivado.",
                 Duration = 3,
                 Image    = "x-circle",
             })
@@ -377,7 +448,9 @@ local SL_Mins = TabRejoin:CreateSlider({
     Callback     = function(v)
         cfg.rejoinMins = v
         saveCfg()
-        if cfg.autoRejoin then startRejoin() end
+        if cfg.autoRejoin then
+            startRejoin()
+        end
     end,
 })
 
@@ -388,19 +461,9 @@ TabRejoin:CreateButton({
     Callback = function()
         if cfg.autoRejoin then
             startRejoin()
-            Rayfield:Notify({
-                Title    = "Timer restarted",
-                Content  = "Next rejoin in " .. cfg.rejoinMins .. " minutes.",
-                Duration = 3,
-                Image    = "refresh-cw",
-            })
+            Rayfield:Notify({ Title="Timer restarted", Content="Next rejoin in " .. cfg.rejoinMins .. " min.", Duration=3, Image="refresh-cw" })
         else
-            Rayfield:Notify({
-                Title    = "Disabled",
-                Content  = "Enable Auto-Rejoin first.",
-                Duration = 3,
-                Image    = "alert-triangle",
-            })
+            Rayfield:Notify({ Title="Disabled", Content="Enable Auto-Rejoin first.", Duration=3, Image="alert-triangle" })
         end
     end,
 })
@@ -408,12 +471,7 @@ TabRejoin:CreateButton({
 TabRejoin:CreateButton({
     Name     = "Rejoin NOW",
     Callback = function()
-        Rayfield:Notify({
-            Title    = "Rejoining...",
-            Content  = "Queuing script and teleporting in 2s.",
-            Duration = 3,
-            Image    = "zap",
-        })
+        Rayfield:Notify({ Title="Rejoining...", Content="Teleporting in 2s.", Duration=3, Image="zap" })
         task.spawn(doRejoin)
     end,
 })
@@ -433,12 +491,7 @@ local DD_Key = TabSettings:CreateDropdown({
     Callback        = function(opts)
         cfg.toggleKey = opts[1]
         saveCfg()
-        Rayfield:Notify({
-            Title    = "Keybind updated",
-            Content  = "Toggle key: " .. opts[1],
-            Duration = 3,
-            Image    = "keyboard",
-        })
+        Rayfield:Notify({ Title="Keybind updated", Content="Toggle key: " .. opts[1], Duration=3, Image="keyboard" })
     end,
 })
 
@@ -465,6 +518,7 @@ TabSettings:CreateButton({
         pcall(function() TG_ShowAll:Set(cfg.showAll) end)
         pcall(function() DD_Key:Set({cfg.toggleKey}) end)
         pcall(function() TG_AutoRejoin:Set(cfg.autoRejoin) end)
+        pcall(function() TG_AntiAfk:Set(cfg.antiAfk) end)
         pcall(function() SL_Mins:Set(cfg.rejoinMins) end)
         Rayfield:Notify({ Title="Reset", Content="Default values restored.", Duration=3, Image="refresh-cw" })
     end,
@@ -473,7 +527,7 @@ TabSettings:CreateButton({
 TabSettings:CreateSection("About")
 TabSettings:CreateLabel("Whizy v9.4 — Sword Factory X")
 TabSettings:CreateLabel("Player: " .. MyName .. "  |  ID: " .. tostring(MyID))
-TabSettings:CreateLabel("Script file: autoexec/hola.lua")
+TabSettings:CreateLabel("Config saved to: WhizyConfig.json")
 
 -- ============================================================
 -- TAB: WEBHOOK
@@ -654,12 +708,18 @@ local function getEnchantNames(sword)
     return result
 end
 
+-- FIX: ignora los slots que sean nil o "None"
+-- Con 1 enchant activo detecta cualquier espada que lo tenga (sin importar los demás)
+-- Con 2 enchants activos la espada debe tener AMBOS, etc.
 local function matchesFilter(sword)
     local filters = {}
     for _, v in ipairs({cfg.enchant1, cfg.enchant2, cfg.enchant3}) do
-        if v then table.insert(filters, v:lower()) end
+        if v and v ~= "" and v ~= "None" then
+            table.insert(filters, v:lower())
+        end
     end
     if #filters == 0 then return false end
+
     local enchants = getEnchantNames(sword)
     for _, f in ipairs(filters) do
         local found = false
@@ -759,6 +819,10 @@ end
 -- ============================================================
 Folder.ChildAdded:Connect(procesarEspada)
 
+if cfg.antiAfk then
+    startAntiAfk()
+end
+
 if cfg.autoRejoin then
     startRejoin()
 end
@@ -769,6 +833,7 @@ Rayfield:Notify({
     Title    = "Whizy v9.4 loaded",
     Content  = "Player: " .. MyName
         .. "\nKey: " .. (cfg.toggleKey or "RightControl")
+        .. "\nAnti-AFK: " .. (cfg.antiAfk and "ON" or "OFF")
         .. "\nAuto-Rejoin: " .. (cfg.autoRejoin and (cfg.rejoinMins .. "min") or "OFF"),
     Duration = 6,
     Image    = "check-circle",
