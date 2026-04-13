@@ -1,6 +1,6 @@
 -- ============================================================
 --   Whizy — Sword Factory X | Auto Enchant Detector & TP
---   Version: 9.4 | GUI: Rayfield by Sirius
+--   Version: 10.0 | GUI: Rayfield by Sirius
 --   Made by Whizy
 -- ============================================================
 
@@ -47,11 +47,17 @@ local KEYBIND_OPTS = {
 
 -- ============================================================
 -- CONFIG
+-- Sword filters: 3 sets, each with 3 enchant slots
+-- A sword matches if it has ALL active enchants of ANY set
 -- ============================================================
 local DEFAULT_CONFIG = {
-    enchant1     = "Ancient",
-    enchant2     = "Insight",
-    enchant3     = "Fortune",
+    -- Set 1
+    s1e1 = "Ancient", s1e2 = "Insight", s1e3 = "Fortune",
+    -- Set 2
+    s2e1 = nil, s2e2 = nil, s2e3 = nil,
+    -- Set 3
+    s3e1 = nil, s3e2 = nil, s3e3 = nil,
+
     autoTP       = true,
     notifyAll    = false,
     showAll      = false,
@@ -59,9 +65,9 @@ local DEFAULT_CONFIG = {
     webhookOn    = true,
     pingEveryone = true,
     toggleKey    = "RightControl",
-    autoRejoin   = false,   -- desactivado por defecto
-    rejoinMins   = 10,      -- 10 minutos por defecto
-    antiAfk      = true,    -- anti-afk activado por defecto
+    autoRejoin   = false,
+    rejoinMins   = 10,
+    antiAfk      = true,
 }
 
 local cfg = {}
@@ -70,7 +76,7 @@ local CONFIG_FILE = "WhizyConfig.json"
 local function saveCfg()
     local encoded = HttpService:JSONEncode(cfg)
     pcall(function() writefile(CONFIG_FILE, encoded) end)
-    pcall(function() Player:SetAttribute("WhizyCfg9", encoded) end)
+    pcall(function() Player:SetAttribute("WhizyCfg10", encoded) end)
 end
 
 local function loadCfg()
@@ -86,7 +92,7 @@ local function loadCfg()
     end)
     if not loaded then
         pcall(function()
-            local raw = Player:GetAttribute("WhizyCfg9") or "{}"
+            local raw = Player:GetAttribute("WhizyCfg10") or "{}"
             local ok, parsed = pcall(function() return HttpService:JSONDecode(raw) end)
             if ok and type(parsed) == "table" then loaded = parsed end
         end)
@@ -122,25 +128,18 @@ local function startAntiAfk()
     stopAntiAfk()
     afkThread = task.spawn(function()
         while cfg.antiAfk do
-            -- Esperar 4 minutos entre cada acción (el kick es a los 14min)
             task.wait(240)
             if not cfg.antiAfk then break end
-
-            -- Método 1: VirtualUser (silencioso, no mueve la cámara)
             pcall(function()
-                VirtualUser:Button2Down(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+                VirtualUser:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
                 task.wait(0.1)
-                VirtualUser:Button2Up(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+                VirtualUser:Button2Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
             end)
-
-            -- Método 2 como respaldo: saltar el personaje
             pcall(function()
                 local char = Player.Character
                 if char then
                     local hum = char:FindFirstChildOfClass("Humanoid")
-                    if hum then
-                        hum.Jump = true
-                    end
+                    if hum then hum.Jump = true end
                 end
             end)
         end
@@ -162,22 +161,16 @@ local function stopRejoin()
         rejoinThread = nil
     end
     pcall(function()
-        if LBL_RejoinStatus then
-            LBL_RejoinStatus:Set("Auto-Rejoin: OFF")
-        end
+        if LBL_RejoinStatus then LBL_RejoinStatus:Set("Auto-Rejoin: OFF") end
     end)
 end
 
 local function doRejoin()
     Rayfield:Notify({
-        Title    = "Auto-Rejoin",
-        Content  = "Queuing script and reconnecting...",
-        Duration = 4,
-        Image    = "refresh-cw",
+        Title = "Auto-Rejoin", Content = "Queuing script and reconnecting...",
+        Duration = 4, Image = "refresh-cw",
     })
-
     task.wait(2)
-
     if queue_on_teleport then
         pcall(function()
             queue_on_teleport([[
@@ -185,48 +178,34 @@ local function doRejoin()
             ]])
         end)
     end
-
     local placeId = game.PlaceId
     local jobId   = game.JobId
-
     local ok = pcall(function()
         TeleportService:TeleportToPlaceInstance(placeId, jobId, Player)
     end)
-    if not ok then
-        pcall(function()
-            TeleportService:Teleport(placeId)
-        end)
-    end
+    if not ok then pcall(function() TeleportService:Teleport(placeId) end) end
 end
 
 local function startRejoin()
-    if rejoinThread then
-        pcall(function() task.cancel(rejoinThread) end)
-    end
-
+    if rejoinThread then pcall(function() task.cancel(rejoinThread) end) end
     rejoinActive    = true
     rejoinCountdown = cfg.rejoinMins * 60
-
     rejoinThread = task.spawn(function()
         while rejoinActive and rejoinCountdown > 0 do
             task.wait(1)
             rejoinCountdown -= 1
-
             if rejoinCountdown % 5 == 0 or rejoinCountdown <= 10 then
                 local mins    = math.floor(rejoinCountdown / 60)
                 local secs    = rejoinCountdown % 60
-                local timeStr = string.format("%02d:%02d", mins, secs)
                 pcall(function()
                     if LBL_RejoinStatus then
-                        LBL_RejoinStatus:Set("Auto-Rejoin: ON — next in " .. timeStr)
+                        LBL_RejoinStatus:Set("Auto-Rejoin: ON — next in "
+                            .. string.format("%02d:%02d", mins, secs))
                     end
                 end)
             end
         end
-
-        if rejoinActive then
-            doRejoin()
-        end
+        if rejoinActive then doRejoin() end
     end)
 end
 
@@ -236,50 +215,188 @@ end
 local function doTP(sword)
     if isTping then return end
     isTping = true
-
     local ok, err = pcall(function()
         local char = Player.Character
         if not char then error("no char") end
         local hrp = char:FindFirstChild("HumanoidRootPart")
         if not hrp then error("no hrp") end
-
-        -- Guardar posición original ANTES de moverse
         local originalCF = hrp.CFrame
-
-        -- Obtener posición de la espada
-        local swordPos = sword:GetPivot().Position + Vector3.new(0, 5, 0)
-
-        -- TP hacia la espada
+        local swordPos   = sword:GetPivot().Position + Vector3.new(0, 5, 0)
         hrp.CFrame = CFrame.new(swordPos)
         stats.tpCount += 1
         updateStats()
         setStatus("Teleported! Returning in 1s...")
-
         task.wait(1)
-
-        -- Re-obtener char por si hubo cambios durante la espera
         local char2 = Player.Character
         if not char2 then error("no char2") end
         local hrp2 = char2:FindFirstChild("HumanoidRootPart")
         if not hrp2 then error("no hrp2") end
-
-        -- Forzar el return con varios intentos para asegurar que se aplica
-        for i = 1, 5 do
-            hrp2.CFrame = originalCF
-            task.wait(0.1)
-        end
-
+        for i = 1, 5 do hrp2.CFrame = originalCF; task.wait(0.1) end
         setStatus("Returned. Waiting for swords...")
     end)
-
     if not ok then
         warn("[Whizy] doTP error: " .. tostring(err))
         setStatus("TP error — check console")
     end
-
-    -- SIEMPRE liberar el lock pase lo que pase
     task.wait(0.3)
     isTping = false
+end
+
+-- ============================================================
+-- 4x SERVER DETECTION
+-- Busca en el PlayerGui o workspace un label que contenga "4x" o "x4"
+-- Ajusta la búsqueda cuando sepas dónde aparece exactamente
+-- ============================================================
+local function is4xServer()
+    -- Método 1: buscar en TODOS los descendientes del workspace
+    -- El texto "x4 Server Luck" aparece en BillboardGui/SurfaceGui dentro del mapa
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
+            local t = obj.Text:lower()
+            if t:find("x4") or t:find("4x") or t:find("4%s*x%s*luck") or t:find("server luck") then
+                return true
+            end
+        end
+    end
+
+    -- Método 2: buscar en PlayerGui (HUD, etc.)
+    for _, obj in ipairs(Player.PlayerGui:GetDescendants()) do
+        if obj:IsA("TextLabel") or obj:IsA("TextButton") then
+            local t = obj.Text:lower()
+            if t:find("x4") or t:find("4x") or t:find("4%s*x%s*luck") or t:find("server luck") then
+                return true
+            end
+        end
+    end
+
+    -- Método 3: buscar en CoreGui
+    pcall(function()
+        for _, obj in ipairs(game:GetService("CoreGui"):GetDescendants()) do
+            if obj:IsA("TextLabel") or obj:IsA("TextButton") then
+                local t = obj.Text:lower()
+                if t:find("x4") or t:find("4x") or t:find("server luck") then
+                    return true
+                end
+            end
+        end
+    end)
+
+    -- Método 4: atributos del workspace
+    local luckMult = workspace:GetAttribute("LuckMultiplier")
+        or workspace:GetAttribute("Luck")
+        or workspace:GetAttribute("EventMultiplier")
+        or workspace:GetAttribute("ServerLuck")
+    if luckMult and tonumber(luckMult) and tonumber(luckMult) >= 4 then
+        return true
+    end
+
+    return false
+end
+
+-- ============================================================
+-- FIND 4x SERVER
+-- ============================================================
+local finding4x       = false
+local find4xThread    = nil
+local LBL_4xStatus
+
+local function stop4xFinder()
+    finding4x = false
+    if find4xThread then
+        pcall(function() task.cancel(find4xThread) end)
+        find4xThread = nil
+    end
+    pcall(function()
+        if LBL_4xStatus then LBL_4xStatus:Set("4x Finder: OFF") end
+    end)
+end
+
+local function send4xWebhook(jobId)
+    if not httpRequest or not cfg.webhookURL or cfg.webhookURL == "" then return end
+    local body = HttpService:JSONEncode({
+        content  = cfg.pingEveryone and "@everyone" or "",
+        username = "Whizy | Sword Factory X",
+        embeds   = {{
+            title       = "4x Luck Server Found!",
+            description = "A 4x luck server was detected!\n\nJoin now before it changes.",
+            color       = 16776960,
+            fields      = {
+                { name="Player",  value=MyName,  inline=true  },
+                { name="Game ID", value=tostring(game.PlaceId), inline=true },
+                { name="Job ID",  value=tostring(jobId), inline=false },
+            },
+            footer    = { text="Whizy v10.0" },
+            timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ"),
+        }}
+    })
+    pcall(function()
+        httpRequest({
+            Url     = cfg.webhookURL,
+            Method  = "POST",
+            Headers = { ["Content-Type"] = "application/json" },
+            Body    = body,
+        })
+    end)
+end
+
+local function start4xFinder()
+    if find4xThread then pcall(function() task.cancel(find4xThread) end) end
+    finding4x = true
+
+    find4xThread = task.spawn(function()
+        local serversChecked = 0
+
+        while finding4x do
+            -- Comprobar si YA estamos en un 4x server
+            if is4xServer() then
+                finding4x = false
+                local jobId = game.JobId
+
+                Rayfield:Notify({
+                    Title    = "4x Server Found!",
+                    Content  = "You are already in a 4x luck server!",
+                    Duration = 10,
+                    Image    = "star",
+                })
+
+                send4xWebhook(jobId)
+
+                pcall(function()
+                    if LBL_4xStatus then
+                        LBL_4xStatus:Set("4x FOUND! Job: " .. jobId:sub(1,8) .. "...")
+                    end
+                end)
+                return
+            end
+
+            serversChecked += 1
+            pcall(function()
+                if LBL_4xStatus then
+                    LBL_4xStatus:Set("Searching... servers checked: " .. serversChecked)
+                end
+            end)
+
+            -- Teleport a nuevo servidor del mismo juego
+            if queue_on_teleport then
+                pcall(function()
+                    queue_on_teleport([[
+                        loadstring(game:HttpGet("https://raw.githubusercontent.com/wh1zy69/WS/refs/heads/main/hola.lua", true))()
+                    ]])
+                end)
+            end
+
+            -- Esperar 3s antes de teleportar (para que el check se complete)
+            task.wait(3)
+
+            local placeId = game.PlaceId
+            pcall(function()
+                TeleportService:Teleport(placeId)
+            end)
+
+            -- Esperar a que cargue el nuevo servidor (máx 15s)
+            task.wait(15)
+        end
+    end)
 end
 
 -- ============================================================
@@ -288,7 +405,7 @@ end
 local Window = Rayfield:CreateWindow({
     Name                   = "Whizy — Sword Factory X",
     LoadingTitle           = "Whizy Script",
-    LoadingSubtitle        = "Auto Enchant Detector v9.4",
+    LoadingSubtitle        = "Auto Enchant Detector v10.0",
     Theme                  = "Default",
     DisableRayfieldPrompts = true,
     DisableBuildWarnings   = true,
@@ -300,6 +417,7 @@ local Window = Rayfield:CreateWindow({
 -- TABS
 -- ============================================================
 local TabDetector = Window:CreateTab("Detector",    "sword")
+local TabFinder   = Window:CreateTab("4x Finder",  "star")
 local TabRejoin   = Window:CreateTab("Auto-Rejoin", "refresh-cw")
 local TabSettings = Window:CreateTab("Settings",    "settings")
 local TabWebhook  = Window:CreateTab("Webhook",     "bell")
@@ -307,75 +425,85 @@ local TabStats    = Window:CreateTab("Statistics",  "bar-chart-2")
 
 -- ============================================================
 -- TAB: DETECTOR
+-- 3 sword filter sets, each with 3 enchant slots
+-- A sword matches if it satisfies ANY of the active sets
 -- ============================================================
-TabDetector:CreateSection("Enchant Filters")
-TabDetector:CreateLabel("Filtra espadas que tengan TODOS los enchants activos.")
-TabDetector:CreateLabel("Pon 'None' en los slots que no quieras usar.")
+TabDetector:CreateSection("Sword Set 1")
+TabDetector:CreateLabel("Sword must have ALL active enchants in this set.")
 
-local DD1 = TabDetector:CreateDropdown({
-    Name            = "Enchant 1",
-    Options         = ENCHANT_OPTS,
-    CurrentOption   = {cfg.enchant1 or "None"},
-    MultipleOptions = false,
-    Flag            = "DD_E1",
-    Callback        = function(opts)
-        cfg.enchant1 = (opts[1] == "None") and nil or opts[1]
-        saveCfg()
-    end,
+local DS1E1 = TabDetector:CreateDropdown({
+    Name="Set 1 — Enchant 1", Options=ENCHANT_OPTS,
+    CurrentOption={cfg.s1e1 or "None"}, MultipleOptions=false, Flag="DS1E1",
+    Callback=function(o) cfg.s1e1=(o[1]=="None") and nil or o[1]; saveCfg() end,
+})
+local DS1E2 = TabDetector:CreateDropdown({
+    Name="Set 1 — Enchant 2", Options=ENCHANT_OPTS,
+    CurrentOption={cfg.s1e2 or "None"}, MultipleOptions=false, Flag="DS1E2",
+    Callback=function(o) cfg.s1e2=(o[1]=="None") and nil or o[1]; saveCfg() end,
+})
+local DS1E3 = TabDetector:CreateDropdown({
+    Name="Set 1 — Enchant 3", Options=ENCHANT_OPTS,
+    CurrentOption={cfg.s1e3 or "None"}, MultipleOptions=false, Flag="DS1E3",
+    Callback=function(o) cfg.s1e3=(o[1]=="None") and nil or o[1]; saveCfg() end,
 })
 
-local DD2 = TabDetector:CreateDropdown({
-    Name            = "Enchant 2",
-    Options         = ENCHANT_OPTS,
-    CurrentOption   = {cfg.enchant2 or "None"},
-    MultipleOptions = false,
-    Flag            = "DD_E2",
-    Callback        = function(opts)
-        cfg.enchant2 = (opts[1] == "None") and nil or opts[1]
-        saveCfg()
-    end,
+TabDetector:CreateSection("Sword Set 2")
+TabDetector:CreateLabel("Second sword type to search for simultaneously.")
+
+local DS2E1 = TabDetector:CreateDropdown({
+    Name="Set 2 — Enchant 1", Options=ENCHANT_OPTS,
+    CurrentOption={cfg.s2e1 or "None"}, MultipleOptions=false, Flag="DS2E1",
+    Callback=function(o) cfg.s2e1=(o[1]=="None") and nil or o[1]; saveCfg() end,
+})
+local DS2E2 = TabDetector:CreateDropdown({
+    Name="Set 2 — Enchant 2", Options=ENCHANT_OPTS,
+    CurrentOption={cfg.s2e2 or "None"}, MultipleOptions=false, Flag="DS2E2",
+    Callback=function(o) cfg.s2e2=(o[1]=="None") and nil or o[1]; saveCfg() end,
+})
+local DS2E3 = TabDetector:CreateDropdown({
+    Name="Set 2 — Enchant 3", Options=ENCHANT_OPTS,
+    CurrentOption={cfg.s2e3 or "None"}, MultipleOptions=false, Flag="DS2E3",
+    Callback=function(o) cfg.s2e3=(o[1]=="None") and nil or o[1]; saveCfg() end,
 })
 
-local DD3 = TabDetector:CreateDropdown({
-    Name            = "Enchant 3",
-    Options         = ENCHANT_OPTS,
-    CurrentOption   = {cfg.enchant3 or "None"},
-    MultipleOptions = false,
-    Flag            = "DD_E3",
-    Callback        = function(opts)
-        cfg.enchant3 = (opts[1] == "None") and nil or opts[1]
-        saveCfg()
-    end,
+TabDetector:CreateSection("Sword Set 3")
+TabDetector:CreateLabel("Third sword type to search for simultaneously.")
+
+local DS3E1 = TabDetector:CreateDropdown({
+    Name="Set 3 — Enchant 1", Options=ENCHANT_OPTS,
+    CurrentOption={cfg.s3e1 or "None"}, MultipleOptions=false, Flag="DS3E1",
+    Callback=function(o) cfg.s3e1=(o[1]=="None") and nil or o[1]; saveCfg() end,
+})
+local DS3E2 = TabDetector:CreateDropdown({
+    Name="Set 3 — Enchant 2", Options=ENCHANT_OPTS,
+    CurrentOption={cfg.s3e2 or "None"}, MultipleOptions=false, Flag="DS3E2",
+    Callback=function(o) cfg.s3e2=(o[1]=="None") and nil or o[1]; saveCfg() end,
+})
+local DS3E3 = TabDetector:CreateDropdown({
+    Name="Set 3 — Enchant 3", Options=ENCHANT_OPTS,
+    CurrentOption={cfg.s3e3 or "None"}, MultipleOptions=false, Flag="DS3E3",
+    Callback=function(o) cfg.s3e3=(o[1]=="None") and nil or o[1]; saveCfg() end,
 })
 
 TabDetector:CreateSection("Options")
 
 local TG_AutoTP = TabDetector:CreateToggle({
-    Name         = "Auto-TP on match",
-    CurrentValue = cfg.autoTP,
-    Flag         = "TG_AutoTP",
-    Callback     = function(v) cfg.autoTP = v; saveCfg() end,
+    Name="Auto-TP on match", CurrentValue=cfg.autoTP, Flag="TG_AutoTP",
+    Callback=function(v) cfg.autoTP=v; saveCfg() end,
 })
-
 local TG_NotifyAll = TabDetector:CreateToggle({
-    Name         = "Notify unmatched swords",
-    CurrentValue = cfg.notifyAll,
-    Flag         = "TG_NotifyAll",
-    Callback     = function(v) cfg.notifyAll = v; saveCfg() end,
+    Name="Notify unmatched swords", CurrentValue=cfg.notifyAll, Flag="TG_NotifyAll",
+    Callback=function(v) cfg.notifyAll=v; saveCfg() end,
 })
-
 local TG_ShowAll = TabDetector:CreateToggle({
-    Name         = "Log all swords to console",
-    CurrentValue = cfg.showAll,
-    Flag         = "TG_ShowAll",
-    Callback     = function(v) cfg.showAll = v; saveCfg() end,
+    Name="Log all swords to console", CurrentValue=cfg.showAll, Flag="TG_ShowAll",
+    Callback=function(v) cfg.showAll=v; saveCfg() end,
 })
 
 TabDetector:CreateSection("Live Status")
 
 local StatusBtn = TabDetector:CreateButton({
-    Name     = "Status: Waiting for swords...",
-    Callback = function() end,
+    Name="Status: Waiting for swords...", Callback=function() end,
 })
 
 setStatus = function(text)
@@ -383,94 +511,95 @@ setStatus = function(text)
 end
 
 -- ============================================================
--- TAB: AUTO-REJOIN (incluye Anti-AFK)
+-- TAB: 4x FINDER
+-- ============================================================
+TabFinder:CreateSection("4x Luck Server Finder")
+TabFinder:CreateLabel("Hops servers until a 4x luck server is found.")
+TabFinder:CreateLabel("When found, sends a Discord webhook alert.")
+TabFinder:CreateLabel("NOTE: Detector is paused while finder is active.")
+
+LBL_4xStatus = TabFinder:CreateLabel("4x Finder: OFF")
+
+TabFinder:CreateButton({
+    Name     = "Start 4x Finder",
+    Callback = function()
+        if finding4x then
+            Rayfield:Notify({ Title="Already running", Content="4x Finder is already active.", Duration=3, Image="alert-triangle" })
+            return
+        end
+        Rayfield:Notify({ Title="4x Finder started", Content="Hopping servers to find 4x luck...", Duration=4, Image="star" })
+        start4xFinder()
+    end,
+})
+
+TabFinder:CreateButton({
+    Name     = "Stop 4x Finder",
+    Callback = function()
+        stop4xFinder()
+        Rayfield:Notify({ Title="4x Finder stopped", Content="Server hopping cancelled.", Duration=3, Image="x-circle" })
+    end,
+})
+
+TabFinder:CreateSection("Manual Check")
+
+TabFinder:CreateButton({
+    Name     = "Check THIS server for 4x",
+    Callback = function()
+        if is4xServer() then
+            Rayfield:Notify({ Title="YES! 4x detected", Content="This server has 4x luck!", Duration=6, Image="star" })
+        else
+            Rayfield:Notify({ Title="No 4x here", Content="This server does NOT have 4x luck.", Duration=4, Image="x-circle" })
+        end
+    end,
+})
+
+-- ============================================================
+-- TAB: AUTO-REJOIN
 -- ============================================================
 TabRejoin:CreateSection("Anti-AFK")
-TabRejoin:CreateLabel("Salta cada 4 min para evitar el kick por AFK (14 min).")
+TabRejoin:CreateLabel("Jumps every 4 min to avoid the 14 min AFK kick.")
 
 local TG_AntiAfk = TabRejoin:CreateToggle({
-    Name         = "Enable Anti-AFK",
-    CurrentValue = cfg.antiAfk,
-    Flag         = "TG_AntiAfk",
-    Callback     = function(v)
-        cfg.antiAfk = v
-        saveCfg()
-        if v then
-            startAntiAfk()
-            Rayfield:Notify({ Title="Anti-AFK ON", Content="Saltará cada 4 minutos.", Duration=3, Image="check-circle" })
-        else
-            stopAntiAfk()
-            Rayfield:Notify({ Title="Anti-AFK OFF", Content="Anti-AFK desactivado.", Duration=3, Image="x-circle" })
-        end
+    Name="Enable Anti-AFK", CurrentValue=cfg.antiAfk, Flag="TG_AntiAfk",
+    Callback=function(v)
+        cfg.antiAfk=v; saveCfg()
+        if v then startAntiAfk(); Rayfield:Notify({ Title="Anti-AFK ON", Content="Jumping every 4 min.", Duration=3, Image="check-circle" })
+        else stopAntiAfk(); Rayfield:Notify({ Title="Anti-AFK OFF", Content="Disabled.", Duration=3, Image="x-circle" }) end
     end,
 })
 
 TabRejoin:CreateSection("Auto-Rejoin Settings")
-TabRejoin:CreateLabel("Hace rejoin al mismo servidor cada X minutos.")
-TabRejoin:CreateLabel("Autoexec re-ejecuta el script tras el rejoin.")
+TabRejoin:CreateLabel("Rejoins same server every X minutes.")
 
 LBL_RejoinStatus = TabRejoin:CreateLabel("Auto-Rejoin: OFF")
 
 local TG_AutoRejoin = TabRejoin:CreateToggle({
-    Name         = "Enable Auto-Rejoin",
-    CurrentValue = cfg.autoRejoin,
-    Flag         = "TG_AutoRejoin",
-    Callback     = function(v)
-        cfg.autoRejoin = v
-        saveCfg()
-        if v then
-            startRejoin()
-            Rayfield:Notify({
-                Title    = "Auto-Rejoin ON",
-                Content  = "Rejoin en " .. cfg.rejoinMins .. " minutos.",
-                Duration = 4,
-                Image    = "check-circle",
-            })
-        else
-            stopRejoin()
-            Rayfield:Notify({
-                Title    = "Auto-Rejoin OFF",
-                Content  = "Auto-Rejoin desactivado.",
-                Duration = 3,
-                Image    = "x-circle",
-            })
-        end
+    Name="Enable Auto-Rejoin", CurrentValue=cfg.autoRejoin, Flag="TG_AutoRejoin",
+    Callback=function(v)
+        cfg.autoRejoin=v; saveCfg()
+        if v then startRejoin(); Rayfield:Notify({ Title="Auto-Rejoin ON", Content="Rejoin in "..cfg.rejoinMins.." min.", Duration=4, Image="check-circle" })
+        else stopRejoin(); Rayfield:Notify({ Title="Auto-Rejoin OFF", Content="Disabled.", Duration=3, Image="x-circle" }) end
     end,
 })
 
 local SL_Mins = TabRejoin:CreateSlider({
-    Name         = "Rejoin interval (minutes)",
-    Range        = {5, 60},
-    Increment    = 1,
-    Suffix       = "min",
-    CurrentValue = cfg.rejoinMins,
-    Flag         = "SL_RejoinMins",
-    Callback     = function(v)
-        cfg.rejoinMins = v
-        saveCfg()
-        if cfg.autoRejoin then
-            startRejoin()
-        end
-    end,
+    Name="Rejoin interval (minutes)", Range={5,60}, Increment=1, Suffix="min",
+    CurrentValue=cfg.rejoinMins, Flag="SL_RejoinMins",
+    Callback=function(v) cfg.rejoinMins=v; saveCfg(); if cfg.autoRejoin then startRejoin() end end,
 })
 
 TabRejoin:CreateSection("Manual Controls")
 
 TabRejoin:CreateButton({
-    Name     = "Restart timer",
-    Callback = function()
-        if cfg.autoRejoin then
-            startRejoin()
-            Rayfield:Notify({ Title="Timer restarted", Content="Next rejoin in " .. cfg.rejoinMins .. " min.", Duration=3, Image="refresh-cw" })
-        else
-            Rayfield:Notify({ Title="Disabled", Content="Enable Auto-Rejoin first.", Duration=3, Image="alert-triangle" })
-        end
+    Name="Restart timer",
+    Callback=function()
+        if cfg.autoRejoin then startRejoin(); Rayfield:Notify({ Title="Timer restarted", Content="Next rejoin in "..cfg.rejoinMins.." min.", Duration=3, Image="refresh-cw" })
+        else Rayfield:Notify({ Title="Disabled", Content="Enable Auto-Rejoin first.", Duration=3, Image="alert-triangle" }) end
     end,
 })
-
 TabRejoin:CreateButton({
-    Name     = "Rejoin NOW",
-    Callback = function()
+    Name="Rejoin NOW",
+    Callback=function()
         Rayfield:Notify({ Title="Rejoining...", Content="Teleporting in 2s.", Duration=3, Image="zap" })
         task.spawn(doRejoin)
     end,
@@ -483,36 +612,38 @@ TabSettings:CreateSection("GUI Toggle Key")
 TabSettings:CreateLabel("Key to show / hide the GUI.")
 
 local DD_Key = TabSettings:CreateDropdown({
-    Name            = "Toggle Key",
-    Options         = KEYBIND_OPTS,
-    CurrentOption   = {cfg.toggleKey or "RightControl"},
-    MultipleOptions = false,
-    Flag            = "DD_Key",
-    Callback        = function(opts)
-        cfg.toggleKey = opts[1]
-        saveCfg()
-        Rayfield:Notify({ Title="Keybind updated", Content="Toggle key: " .. opts[1], Duration=3, Image="keyboard" })
+    Name="Toggle Key", Options=KEYBIND_OPTS,
+    CurrentOption={cfg.toggleKey or "RightControl"}, MultipleOptions=false, Flag="DD_Key",
+    Callback=function(opts)
+        cfg.toggleKey=opts[1]; saveCfg()
+        Rayfield:Notify({ Title="Keybind updated", Content="Toggle key: "..opts[1], Duration=3, Image="keyboard" })
     end,
 })
 
 TabSettings:CreateSection("Configuration")
 
 TabSettings:CreateButton({
-    Name     = "Save config now",
-    Callback = function()
+    Name="Save config now",
+    Callback=function()
         saveCfg()
-        Rayfield:Notify({ Title="Saved", Content="Config saved successfully.", Duration=3, Image="check" })
+        Rayfield:Notify({ Title="Saved", Content="Config saved.", Duration=3, Image="check" })
     end,
 })
 
 TabSettings:CreateButton({
-    Name     = "Reset to defaults",
-    Callback = function()
-        for k, v in pairs(DEFAULT_CONFIG) do cfg[k] = v end
+    Name="Reset to defaults",
+    Callback=function()
+        for k,v in pairs(DEFAULT_CONFIG) do cfg[k]=v end
         saveCfg()
-        pcall(function() DD1:Set({cfg.enchant1 or "None"}) end)
-        pcall(function() DD2:Set({cfg.enchant2 or "None"}) end)
-        pcall(function() DD3:Set({cfg.enchant3 or "None"}) end)
+        pcall(function() DS1E1:Set({cfg.s1e1 or "None"}) end)
+        pcall(function() DS1E2:Set({cfg.s1e2 or "None"}) end)
+        pcall(function() DS1E3:Set({cfg.s1e3 or "None"}) end)
+        pcall(function() DS2E1:Set({cfg.s2e1 or "None"}) end)
+        pcall(function() DS2E2:Set({cfg.s2e2 or "None"}) end)
+        pcall(function() DS2E3:Set({cfg.s2e3 or "None"}) end)
+        pcall(function() DS3E1:Set({cfg.s3e1 or "None"}) end)
+        pcall(function() DS3E2:Set({cfg.s3e2 or "None"}) end)
+        pcall(function() DS3E3:Set({cfg.s3e3 or "None"}) end)
         pcall(function() TG_AutoTP:Set(cfg.autoTP) end)
         pcall(function() TG_NotifyAll:Set(cfg.notifyAll) end)
         pcall(function() TG_ShowAll:Set(cfg.showAll) end)
@@ -520,89 +651,67 @@ TabSettings:CreateButton({
         pcall(function() TG_AutoRejoin:Set(cfg.autoRejoin) end)
         pcall(function() TG_AntiAfk:Set(cfg.antiAfk) end)
         pcall(function() SL_Mins:Set(cfg.rejoinMins) end)
-        Rayfield:Notify({ Title="Reset", Content="Default values restored.", Duration=3, Image="refresh-cw" })
+        Rayfield:Notify({ Title="Reset", Content="Defaults restored.", Duration=3, Image="refresh-cw" })
     end,
 })
 
 TabSettings:CreateSection("About")
-TabSettings:CreateLabel("Whizy v9.4 — Sword Factory X")
+TabSettings:CreateLabel("Whizy v10.0 — Sword Factory X")
 TabSettings:CreateLabel("Player: " .. MyName .. "  |  ID: " .. tostring(MyID))
-TabSettings:CreateLabel("Config saved to: WhizyConfig.json")
+TabSettings:CreateLabel("Source: github.com/wh1zy69/WS")
 
 -- ============================================================
 -- TAB: WEBHOOK
 -- ============================================================
 TabWebhook:CreateSection("Discord Webhook")
-TabWebhook:CreateLabel("Sends a Discord embed when a match is detected.")
+TabWebhook:CreateLabel("Sends embeds on sword match AND 4x server found.")
 
 if not httpRequest then
-    TabWebhook:CreateLabel("WARNING: Your executor does not expose request(). Webhook unavailable.")
+    TabWebhook:CreateLabel("WARNING: executor does not expose request(). Webhook unavailable.")
 end
 
 TabWebhook:CreateInput({
-    Name                     = "Webhook URL",
-    CurrentValue             = cfg.webhookURL or "",
-    PlaceholderText          = "https://discord.com/api/webhooks/...",
-    RemoveTextAfterFocusLost = false,
-    Flag                     = "WH_URL",
-    Callback                 = function(text)
-        cfg.webhookURL = text
-        saveCfg()
-    end,
+    Name="Webhook URL", CurrentValue=cfg.webhookURL or "",
+    PlaceholderText="https://discord.com/api/webhooks/...",
+    RemoveTextAfterFocusLost=false, Flag="WH_URL",
+    Callback=function(text) cfg.webhookURL=text; saveCfg() end,
 })
-
 TabWebhook:CreateToggle({
-    Name         = "Enable Webhook",
-    CurrentValue = cfg.webhookOn,
-    Flag         = "TG_WH_On",
-    Callback     = function(v) cfg.webhookOn = v; saveCfg() end,
+    Name="Enable Webhook", CurrentValue=cfg.webhookOn, Flag="TG_WH_On",
+    Callback=function(v) cfg.webhookOn=v; saveCfg() end,
 })
-
 TabWebhook:CreateToggle({
-    Name         = "@everyone on match",
-    CurrentValue = cfg.pingEveryone,
-    Flag         = "TG_WH_Ping",
-    Callback     = function(v) cfg.pingEveryone = v; saveCfg() end,
+    Name="@everyone on match", CurrentValue=cfg.pingEveryone, Flag="TG_WH_Ping",
+    Callback=function(v) cfg.pingEveryone=v; saveCfg() end,
 })
 
 TabWebhook:CreateSection("Test")
-
 TabWebhook:CreateButton({
-    Name     = "Send test message",
-    Callback = function()
-        if not cfg.webhookURL or cfg.webhookURL == "" then
-            Rayfield:Notify({ Title="No URL", Content="Enter the webhook URL first.", Duration=4, Image="alert-triangle" })
-            return
+    Name="Send test message",
+    Callback=function()
+        if not cfg.webhookURL or cfg.webhookURL=="" then
+            Rayfield:Notify({ Title="No URL", Content="Enter webhook URL first.", Duration=4, Image="alert-triangle" }); return
         end
         if not httpRequest then
-            Rayfield:Notify({ Title="Unsupported", Content="Your executor does not support http.request.", Duration=4, Image="x-circle" })
-            return
+            Rayfield:Notify({ Title="Unsupported", Content="Executor does not support http.request.", Duration=4, Image="x-circle" }); return
         end
-
         local body = HttpService:JSONEncode({
-            content  = cfg.pingEveryone and "@everyone" or "",
-            username = "Whizy | Sword Factory X",
-            embeds   = {{
-                title       = "Test message",
-                description = "Webhook configured correctly.\nPlayer: **" .. MyName .. "**",
-                color       = 9699539,
-                footer      = { text = "Whizy v9.4" },
+            content=cfg.pingEveryone and "@everyone" or "",
+            username="Whizy | Sword Factory X",
+            embeds={{
+                title="Test message",
+                description="Webhook configured correctly.\nPlayer: **"..MyName.."**",
+                color=9699539, footer={text="Whizy v10.0"},
             }}
         })
-
         local ok, res = pcall(function()
-            return httpRequest({
-                Url     = cfg.webhookURL,
-                Method  = "POST",
-                Headers = { ["Content-Type"] = "application/json" },
-                Body    = body,
-            })
+            return httpRequest({ Url=cfg.webhookURL, Method="POST",
+                Headers={["Content-Type"]="application/json"}, Body=body })
         end)
-
-        if ok and res and (res.StatusCode == 200 or res.StatusCode == 204) then
-            Rayfield:Notify({ Title="Webhook OK", Content="Test message sent to Discord.", Duration=4, Image="check-circle" })
+        if ok and res and (res.StatusCode==200 or res.StatusCode==204) then
+            Rayfield:Notify({ Title="Webhook OK", Content="Test sent to Discord.", Duration=4, Image="check-circle" })
         elseif ok and res then
-            Rayfield:Notify({ Title="Error", Content="HTTP " .. tostring(res.StatusCode), Duration=5, Image="x-circle" })
+            Rayfield:Notify({ Title="Error", Content="HTTP "..tostring(res.StatusCode), Duration=5, Image="x-circle" })
         else
             Rayfield:Notify({ Title="Error", Content=tostring(res):sub(1,80), Duration=5, Image="x-circle" })
         end
@@ -627,52 +736,44 @@ updateStats = function()
 end
 
 TabStats:CreateSection("Actions")
-
 TabStats:CreateButton({
-    Name     = "Reset statistics",
-    Callback = function()
-        stats.total, stats.withEnchants, stats.tpCount, stats.webhookSent = 0,0,0,0
+    Name="Reset statistics",
+    Callback=function()
+        stats.total,stats.withEnchants,stats.tpCount,stats.webhookSent=0,0,0,0
         updateStats()
         Rayfield:Notify({ Title="Stats reset", Content="All counters set to 0.", Duration=3, Image="trash-2" })
     end,
 })
 
 -- ============================================================
--- WEBHOOK SENDER
+-- WEBHOOK SENDER (sword match)
 -- ============================================================
-local function sendWebhook(level, enchStr, rarity, quality)
-    if not cfg.webhookOn or not cfg.webhookURL or cfg.webhookURL == "" then return end
+local function sendWebhook(level, enchStr, rarity, quality, setNum)
+    if not cfg.webhookOn or not cfg.webhookURL or cfg.webhookURL=="" then return end
     if not httpRequest then return end
-
     local body = HttpService:JSONEncode({
-        content  = cfg.pingEveryone and "@everyone" or "",
-        username = "Whizy | Sword Factory X",
-        embeds   = {{
-            title       = "Match detected!",
-            description = "A sword with your filtered enchants was found.",
-            color       = 10181046,
-            fields      = {
-                { name="Sword",    value=level,             inline=true  },
-                { name="Enchants", value=enchStr,           inline=true  },
-                { name="Rarity",   value=tostring(rarity),  inline=true  },
-                { name="Quality",  value=tostring(quality), inline=true  },
-                { name="Player",   value=MyName,            inline=false },
+        content=cfg.pingEveryone and "@everyone" or "",
+        username="Whizy | Sword Factory X",
+        embeds={{
+            title="Match detected! (Set "..setNum..")",
+            description="A sword matching Set "..setNum.." was found.",
+            color=10181046,
+            fields={
+                {name="Sword",    value=level,             inline=true },
+                {name="Enchants", value=enchStr,           inline=true },
+                {name="Rarity",   value=tostring(rarity),  inline=true },
+                {name="Quality",  value=tostring(quality), inline=true },
+                {name="Player",   value=MyName,            inline=false},
             },
-            footer    = { text="Whizy v9.4" },
-            timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ"),
+            footer={text="Whizy v10.0"},
+            timestamp=os.date("!%Y-%m-%dT%H:%M:%SZ"),
         }}
     })
-
     local ok = pcall(function()
-        httpRequest({
-            Url     = cfg.webhookURL,
-            Method  = "POST",
-            Headers = { ["Content-Type"] = "application/json" },
-            Body    = body,
-        })
+        httpRequest({ Url=cfg.webhookURL, Method="POST",
+            Headers={["Content-Type"]="application/json"}, Body=body })
     end)
-
-    if ok then stats.webhookSent += 1; updateStats() end
+    if ok then stats.webhookSent+=1; updateStats() end
 end
 
 -- ============================================================
@@ -708,27 +809,35 @@ local function getEnchantNames(sword)
     return result
 end
 
--- FIX: ignora los slots que sean nil o "None"
--- Con 1 enchant activo detecta cualquier espada que lo tenga (sin importar los demás)
--- Con 2 enchants activos la espada debe tener AMBOS, etc.
-local function matchesFilter(sword)
-    local filters = {}
-    for _, v in ipairs({cfg.enchant1, cfg.enchant2, cfg.enchant3}) do
-        if v and v ~= "" and v ~= "None" then
-            table.insert(filters, v:lower())
-        end
-    end
-    if #filters == 0 then return false end
-
+-- Returns the set number that matched (1, 2, or 3), or nil
+local function matchesAnySet(sword)
+    local sets = {
+        { cfg.s1e1, cfg.s1e2, cfg.s1e3 },
+        { cfg.s2e1, cfg.s2e2, cfg.s2e3 },
+        { cfg.s3e1, cfg.s3e2, cfg.s3e3 },
+    }
     local enchants = getEnchantNames(sword)
-    for _, f in ipairs(filters) do
-        local found = false
-        for _, e in ipairs(enchants) do
-            if e == f then found = true; break end
+
+    for setIdx, setEnchants in ipairs(sets) do
+        local filters = {}
+        for _, v in ipairs(setEnchants) do
+            if v and v ~= "" and v ~= "None" then
+                table.insert(filters, v:lower())
+            end
         end
-        if not found then return false end
+        if #filters > 0 then
+            local allFound = true
+            for _, f in ipairs(filters) do
+                local found = false
+                for _, e in ipairs(enchants) do
+                    if e == f then found = true; break end
+                end
+                if not found then allFound = false; break end
+            end
+            if allFound then return setIdx end
+        end
     end
-    return true
+    return nil
 end
 
 local function procesarEspada(sword)
@@ -767,9 +876,7 @@ local function procesarEspada(sword)
                     if t == last then
                         stable += 1
                         if stable >= 3 then finalLevel = t; break end
-                    else
-                        stable = 0; last = t
-                    end
+                    else stable = 0; last = t end
                 end
                 task.wait(0.2)
             end
@@ -793,22 +900,20 @@ local function procesarEspada(sword)
 
         setStatus("Detected: " .. finalLevel)
 
-        if matchesFilter(sword) then
-            setStatus("MATCH! " .. enchStr)
+        local matchedSet = matchesAnySet(sword)
+        if matchedSet then
+            setStatus("MATCH (Set "..matchedSet..")! " .. enchStr)
             Rayfield:Notify({
-                Title    = "Match found!",
-                Content  = finalLevel .. "\n" .. enchStr,
-                Duration = 6,
-                Image    = "zap",
+                Title   = "Match found! (Set " .. matchedSet .. ")",
+                Content = finalLevel .. "\n" .. enchStr,
+                Duration = 6, Image = "zap",
             })
-            task.spawn(function() sendWebhook(finalLevel, enchStr, attr.Rarity, attr.Quality) end)
+            task.spawn(function() sendWebhook(finalLevel, enchStr, attr.Rarity, attr.Quality, matchedSet) end)
             if cfg.autoTP then doTP(sword) end
         elseif cfg.notifyAll then
             Rayfield:Notify({
-                Title    = "New sword",
-                Content  = finalLevel .. "  |  " .. enchStr,
-                Duration = 3,
-                Image    = "package",
+                Title="New sword", Content=finalLevel.."  |  "..enchStr,
+                Duration=3, Image="package",
             })
         end
     end)
@@ -819,24 +924,21 @@ end
 -- ============================================================
 Folder.ChildAdded:Connect(procesarEspada)
 
-if cfg.antiAfk then
-    startAntiAfk()
-end
-
-if cfg.autoRejoin then
-    startRejoin()
-end
+if cfg.antiAfk then startAntiAfk() end
+if cfg.autoRejoin then startRejoin() end
 
 setStatus("Waiting for swords from " .. MyName .. "...")
 
 Rayfield:Notify({
-    Title    = "Whizy v9.4 loaded",
-    Content  = "Player: " .. MyName
+    Title   = "Whizy v10.0 loaded",
+    Content = "Player: " .. MyName
         .. "\nKey: " .. (cfg.toggleKey or "RightControl")
-        .. "\nAnti-AFK: " .. (cfg.antiAfk and "ON" or "OFF")
-        .. "\nAuto-Rejoin: " .. (cfg.autoRejoin and (cfg.rejoinMins .. "min") or "OFF"),
-    Duration = 6,
-    Image    = "check-circle",
+        .. "\nSets active: " .. (
+            (cfg.s1e1 and "1" or "") ..
+            (cfg.s2e1 and " 2" or "") ..
+            (cfg.s3e1 and " 3" or "")
+        ),
+    Duration = 6, Image = "check-circle",
 })
 
-print("--- Whizy v9.4 | " .. MyName .. " ---")
+print("--- Whizy v10.0 | " .. MyName .. " ---")
