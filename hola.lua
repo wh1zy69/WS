@@ -316,7 +316,8 @@ local function getRandomServer()
             and server.id ~= currentJobId
             and server.playing ~= nil
             and server.maxPlayers ~= nil
-            and server.playing < server.maxPlayers then
+            and server.playing >= 12
+            and server.playing <= 15 then
                 table.insert(available, server.id)
             end
         end
