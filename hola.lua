@@ -400,7 +400,7 @@ local function start4xFinder()
             end)
 
             -- Esperar 8s a que el servidor cargue completamente antes de checkear
-            task.wait(8)
+            task.wait(5)
             if not finding4x then break end
 
             if is4xServer() then
@@ -460,7 +460,7 @@ local function start4xFinder()
             end
 
             -- Esperar a que el teleport ocurra
-            task.wait(15)
+            task.wait(8)
         end
     end)
 end
