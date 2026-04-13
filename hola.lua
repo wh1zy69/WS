@@ -244,62 +244,44 @@ end
 
 -- ============================================================
 -- 4x SERVER DETECTION
--- Busca en el PlayerGui o workspace un label que contenga "4x" o "x4"
--- Ajusta la búsqueda cuando sepas dónde aparece exactamente
 -- ============================================================
-local function is4xServer()
-    -- Busca el label EXACTO del evento de suerte del servidor
-    -- El texto tiene el formato: "~ x4 Server Luck [HH:MM:SS] ~"
-    -- Buscamos que contenga "server luck" Y un timer entre corchetes como [00:00:00]
-    -- Esto evita falsos positivos con otras cosas que tengan "x4" o "luck"
+local FINDER_STATE_FILE = "Whizy4xState.json"
 
+local function is4xServer()
     local function checkText(t)
         t = t:lower()
-        -- Debe tener "server luck" Y un timer entre corchetes [XX:XX:XX]
-        -- El timer es la prueba definitiva de que es el label del evento real
+        -- Debe tener "server luck" Y un timer [XX:XX:XX] — único del evento real
         return t:find("server luck") and t:find("%[%d+:%d+:%d+%]")
     end
 
-    -- Buscar en workspace
     for _, obj in ipairs(workspace:GetDescendants()) do
-        if (obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox")) then
+        if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
             local ok2, t = pcall(function() return obj.Text end)
-            if ok2 and t and checkText(t) then
-                return true
-            end
+            if ok2 and t and checkText(t) then return true end
         end
     end
-
-    -- Buscar en PlayerGui
     for _, obj in ipairs(Player.PlayerGui:GetDescendants()) do
-        if (obj:IsA("TextLabel") or obj:IsA("TextButton")) then
+        if obj:IsA("TextLabel") or obj:IsA("TextButton") then
             local ok2, t = pcall(function() return obj.Text end)
-            if ok2 and t and checkText(t) then
-                return true
-            end
+            if ok2 and t and checkText(t) then return true end
         end
     end
-
-    -- Buscar en CoreGui
     pcall(function()
         for _, obj in ipairs(game:GetService("CoreGui"):GetDescendants()) do
-            if (obj:IsA("TextLabel") or obj:IsA("TextButton")) then
+            if obj:IsA("TextLabel") or obj:IsA("TextButton") then
                 local ok2, t = pcall(function() return obj.Text end)
-                if ok2 and t and checkText(t) then
-                    return true
-                end
+                if ok2 and t and checkText(t) then return true end
             end
         end
     end)
-
     return false
 end
 
 -- ============================================================
 -- FIND 4x SERVER
 -- ============================================================
-local finding4x       = false
-local find4xThread    = nil
+local finding4x    = false
+local find4xThread = nil
 local LBL_4xStatus
 
 local function stop4xFinder()
@@ -308,6 +290,8 @@ local function stop4xFinder()
         pcall(function() task.cancel(find4xThread) end)
         find4xThread = nil
     end
+    -- Borrar el archivo de estado para que no se reactive solo
+    pcall(function() writefile(FINDER_STATE_FILE, "{}") end)
     pcall(function()
         if LBL_4xStatus then LBL_4xStatus:Set("4x Finder: OFF") end
     end)
@@ -320,24 +304,20 @@ local function send4xWebhook(jobId)
         username = "Whizy | Sword Factory X",
         embeds   = {{
             title       = "4x Luck Server Found!",
-            description = "A 4x luck server was detected!\n\nJoin now before it changes.",
+            description = "A 4x luck server was detected!\nJoin now before it ends.",
             color       = 16776960,
             fields      = {
-                { name="Player",  value=MyName,  inline=true  },
-                { name="Game ID", value=tostring(game.PlaceId), inline=true },
-                { name="Job ID",  value=tostring(jobId), inline=false },
+                { name="Player",  value=MyName,                    inline=true  },
+                { name="Game ID", value=tostring(game.PlaceId),    inline=true  },
+                { name="Job ID",  value=tostring(jobId),           inline=false },
             },
             footer    = { text="Whizy v10.0" },
             timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ"),
         }}
     })
     pcall(function()
-        httpRequest({
-            Url     = cfg.webhookURL,
-            Method  = "POST",
-            Headers = { ["Content-Type"] = "application/json" },
-            Body    = body,
-        })
+        httpRequest({ Url=cfg.webhookURL, Method="POST",
+            Headers={["Content-Type"]="application/json"}, Body=body })
     end)
 end
 
@@ -345,40 +325,65 @@ local function start4xFinder()
     if find4xThread then pcall(function() task.cancel(find4xThread) end) end
     finding4x = true
 
+    -- Guardar estado en archivo para sobrevivir al teleport+reinicio
+    pcall(function()
+        writefile(FINDER_STATE_FILE, HttpService:JSONEncode({ active=true, checked=0 }))
+    end)
+
     find4xThread = task.spawn(function()
         local serversChecked = 0
 
         while finding4x do
-            -- Comprobar si YA estamos en un 4x server
+            pcall(function()
+                if LBL_4xStatus then
+                    LBL_4xStatus:Set("Waiting for server to load... (" .. serversChecked .. " checked)")
+                end
+            end)
+
+            -- Esperar 8 segundos a que el servidor cargue completamente
+            -- antes de hacer el check (evita falsos positivos durante la carga)
+            task.wait(8)
+
+            if not finding4x then break end
+
+            -- Check si este servidor tiene 4x
             if is4xServer() then
                 finding4x = false
                 local jobId = game.JobId
 
+                -- Borrar estado — ya encontramos, no seguir buscando
+                pcall(function() writefile(FINDER_STATE_FILE, "{}") end)
+
                 Rayfield:Notify({
                     Title    = "4x Server Found!",
-                    Content  = "You are already in a 4x luck server!",
+                    Content  = "Staying in this server!",
                     Duration = 10,
                     Image    = "star",
                 })
-
                 send4xWebhook(jobId)
-
                 pcall(function()
                     if LBL_4xStatus then
                         LBL_4xStatus:Set("4x FOUND! Job: " .. jobId:sub(1,8) .. "...")
                     end
                 end)
-                return
+                return -- Quedarse en este servidor, no saltar más
             end
 
+            -- No tiene 4x, saltar al siguiente servidor
             serversChecked += 1
             pcall(function()
                 if LBL_4xStatus then
-                    LBL_4xStatus:Set("Searching... servers checked: " .. serversChecked)
+                    LBL_4xStatus:Set("No 4x here. Hopping... (" .. serversChecked .. " checked)")
                 end
             end)
 
-            -- Teleport a nuevo servidor del mismo juego
+            -- Guardar cuántos hemos comprobado
+            pcall(function()
+                writefile(FINDER_STATE_FILE, HttpService:JSONEncode({ active=true, checked=serversChecked }))
+            end)
+
+            -- Queue el script para que se re-ejecute en el nuevo servidor
+            -- y continúe la búsqueda automáticamente
             if queue_on_teleport then
                 pcall(function()
                     queue_on_teleport([[
@@ -387,19 +392,40 @@ local function start4xFinder()
                 end)
             end
 
-            -- Esperar 3s antes de teleportar (para que el check se complete)
-            task.wait(3)
+            task.wait(1)
 
-            local placeId = game.PlaceId
+            -- Saltar a un servidor aleatorio del mismo juego
             pcall(function()
-                TeleportService:Teleport(placeId)
+                TeleportService:Teleport(game.PlaceId)
             end)
 
-            -- Esperar a que cargue el nuevo servidor (máx 15s)
+            -- Esperar a que el teleport ocurra (si no, el loop continuaría)
             task.wait(15)
         end
     end)
 end
+
+-- ============================================================
+-- AUTO-REANUDAR FINDER SI ESTABA ACTIVO ANTES DEL TELEPORT
+-- ============================================================
+task.spawn(function()
+    task.wait(3) -- Esperar a que Rayfield cargue
+    pcall(function()
+        if isfile and isfile(FINDER_STATE_FILE) then
+            local raw = readfile(FINDER_STATE_FILE)
+            local ok, state = pcall(function() return HttpService:JSONDecode(raw) end)
+            if ok and type(state) == "table" and state.active == true then
+                -- Estábamos buscando antes del teleport — continuar
+                Rayfield:Notify({
+                    Title   = "4x Finder resuming",
+                    Content = "Continuing server hop search...",
+                    Duration = 4, Image = "refresh-cw",
+                })
+                start4xFinder()
+            end
+        end
+    end)
+end)
 
 -- ============================================================
 -- WINDOW
