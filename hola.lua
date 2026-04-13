@@ -248,47 +248,49 @@ end
 -- Ajusta la búsqueda cuando sepas dónde aparece exactamente
 -- ============================================================
 local function is4xServer()
-    -- Método 1: buscar en TODOS los descendientes del workspace
-    -- El texto "x4 Server Luck" aparece en BillboardGui/SurfaceGui dentro del mapa
+    -- Busca el label EXACTO del evento de suerte del servidor
+    -- El texto tiene el formato: "~ x4 Server Luck [HH:MM:SS] ~"
+    -- Buscamos que contenga "server luck" Y un timer entre corchetes como [00:00:00]
+    -- Esto evita falsos positivos con otras cosas que tengan "x4" o "luck"
+
+    local function checkText(t)
+        t = t:lower()
+        -- Debe tener "server luck" Y un timer entre corchetes [XX:XX:XX]
+        -- El timer es la prueba definitiva de que es el label del evento real
+        return t:find("server luck") and t:find("%[%d+:%d+:%d+%]")
+    end
+
+    -- Buscar en workspace
     for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
-            local t = obj.Text:lower()
-            if t:find("x4") or t:find("4x") or t:find("4%s*x%s*luck") or t:find("server luck") then
+        if (obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox")) then
+            local ok2, t = pcall(function() return obj.Text end)
+            if ok2 and t and checkText(t) then
                 return true
             end
         end
     end
 
-    -- Método 2: buscar en PlayerGui (HUD, etc.)
+    -- Buscar en PlayerGui
     for _, obj in ipairs(Player.PlayerGui:GetDescendants()) do
-        if obj:IsA("TextLabel") or obj:IsA("TextButton") then
-            local t = obj.Text:lower()
-            if t:find("x4") or t:find("4x") or t:find("4%s*x%s*luck") or t:find("server luck") then
+        if (obj:IsA("TextLabel") or obj:IsA("TextButton")) then
+            local ok2, t = pcall(function() return obj.Text end)
+            if ok2 and t and checkText(t) then
                 return true
             end
         end
     end
 
-    -- Método 3: buscar en CoreGui
+    -- Buscar en CoreGui
     pcall(function()
         for _, obj in ipairs(game:GetService("CoreGui"):GetDescendants()) do
-            if obj:IsA("TextLabel") or obj:IsA("TextButton") then
-                local t = obj.Text:lower()
-                if t:find("x4") or t:find("4x") or t:find("server luck") then
+            if (obj:IsA("TextLabel") or obj:IsA("TextButton")) then
+                local ok2, t = pcall(function() return obj.Text end)
+                if ok2 and t and checkText(t) then
                     return true
                 end
             end
         end
     end)
-
-    -- Método 4: atributos del workspace
-    local luckMult = workspace:GetAttribute("LuckMultiplier")
-        or workspace:GetAttribute("Luck")
-        or workspace:GetAttribute("EventMultiplier")
-        or workspace:GetAttribute("ServerLuck")
-    if luckMult and tonumber(luckMult) and tonumber(luckMult) >= 4 then
-        return true
-    end
 
     return false
 end
