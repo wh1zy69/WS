@@ -836,25 +836,53 @@ TabStats:CreateButton({
 -- ============================================================
 -- WEBHOOK SENDER (sword match)
 -- ============================================================
-local function sendWebhook(level, enchStr, rarity, quality, setNum)
+-- Limpia las etiquetas de color (rich text) del texto que devuelve Roblox
+local function cleanText(s)
+    if not s then return "Unknown" end
+    s = tostring(s):gsub("<[^>]->", "")              -- quita <font ...> y </font>
+    s = s:gsub("%s+", " "):gsub("^%s*(.-)%s*$", "%1") -- recorta espacios
+    return (s == "" and "Unknown") or s
+end
+
+-- Pone los enchants bonitos: "fortune | ancient" -> "Fortune • Ancient"
+local function prettyEnchants(str)
+    if not str or str == "" or str == "no enchants" then return "None" end
+    local parts = {}
+    for word in str:gmatch("[^|]+") do
+        word = word:gsub("^%s*(.-)%s*$", "%1")
+        if word ~= "" then
+            word = word:sub(1,1):upper() .. word:sub(2)
+            table.insert(parts, word)
+        end
+    end
+    return #parts > 0 and table.concat(parts, "  •  ") or "None"
+end
+
+local function sendWebhook(level, enchStr, rarity, quality, value, setNum)
     if not cfg.webhookOn or not cfg.webhookURL or cfg.webhookURL=="" then return end
     if not httpRequest then return end
+
+    local cleanLevel = cleanText(level)
+    local enchPretty = prettyEnchants(enchStr)
+
     local body = HttpService:JSONEncode({
-        content=cfg.pingEveryone and "@everyone" or "",
-        username="Whizy | Sword Factory X",
-        embeds={{
-            title="Match detected! (Set "..setNum..")",
-            description="A sword matching Set "..setNum.." was found.",
-            color=10181046,
-            fields={
-                {name="Sword",    value=level,             inline=true },
-                {name="Enchants", value=enchStr,           inline=true },
-                {name="Rarity",   value=tostring(rarity),  inline=true },
-                {name="Quality",  value=tostring(quality), inline=true },
-                {name="Player",   value=MyName,            inline=false},
+        content  = cfg.pingEveryone and "@everyone" or "",
+        username = "Whizy • Sword Factory X",
+        embeds   = {{
+            author      = { name = "⚔️  Sword Match Detected" },
+            title       = "✨  " .. cleanLevel,
+            description = "Una espada que coincide con **Set " .. setNum .. "** ha aparecido en tu fábrica.",
+            color       = 10038786,  -- morado vibrante
+            fields = {
+                { name = "🔮  Enchants", value = enchPretty,                       inline = false },
+                { name = "💎  Rarity",   value = "`" .. tostring(rarity)  .. "`",   inline = true  },
+                { name = "⭐  Quality",  value = "`" .. tostring(quality) .. "`",   inline = true  },
+                { name = "💰  Value",    value = "`" .. tostring(value)   .. "`",   inline = true  },
+                { name = "🎯  Set",      value = "`Set " .. setNum .. "`",          inline = true  },
+                { name = "👤  Player",   value = "`" .. MyName .. "`",              inline = true  },
             },
-            footer={text="Whizy v10.0"},
-            timestamp=os.date("!%Y-%m-%dT%H:%M:%SZ"),
+            footer    = { text = "Whizy v10.0  •  Sword Factory X" },
+            timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ"),
         }}
     })
     local ok = pcall(function()
@@ -906,23 +934,30 @@ local function matchesAnySet(sword)
     }
     local enchants = getEnchantNames(sword)
 
+    -- Conteo de enchants que tiene la espada (cuenta duplicados)
+    local swordCnt, swordTotal = {}, 0
+    for _, e in ipairs(enchants) do
+        swordCnt[e] = (swordCnt[e] or 0) + 1
+        swordTotal += 1
+    end
+
     for setIdx, setEnchants in ipairs(sets) do
-        local filters = {}
+        -- Conteo de enchants activos del set (cuenta duplicados, ignora "None")
+        local filterCnt, filterTotal = {}, 0
         for _, v in ipairs(setEnchants) do
             if v and v ~= "" and v ~= "None" then
-                table.insert(filters, v:lower())
+                local lv = v:lower()
+                filterCnt[lv] = (filterCnt[lv] or 0) + 1
+                filterTotal += 1
             end
         end
-        if #filters > 0 then
-            local allFound = true
-            for _, f in ipairs(filters) do
-                local found = false
-                for _, e in ipairs(enchants) do
-                    if e == f then found = true; break end
-                end
-                if not found then allFound = false; break end
+        -- MATCH EXACTO: mismo total Y misma cantidad de cada enchant (sin extras)
+        if filterTotal > 0 and filterTotal == swordTotal then
+            local equal = true
+            for name, cnt in pairs(filterCnt) do
+                if swordCnt[name] ~= cnt then equal = false; break end
             end
-            if allFound then return setIdx end
+            if equal then return setIdx end
         end
     end
     return nil
@@ -996,7 +1031,7 @@ local function procesarEspada(sword)
                 Content = finalLevel .. "\n" .. enchStr,
                 Duration = 6, Image = "zap",
             })
-            task.spawn(function() sendWebhook(finalLevel, enchStr, attr.Rarity, attr.Quality, matchedSet) end)
+            task.spawn(function() sendWebhook(finalLevel, enchStr, attr.Rarity, attr.Quality, attr.Value, matchedSet) end)
             if cfg.autoTP then doTP(sword) end
         elseif cfg.notifyAll then
             Rayfield:Notify({
