@@ -522,17 +522,17 @@ TabDetector:CreateLabel("Sword must have ALL active enchants in this set.")
 local DS1E1 = TabDetector:CreateDropdown({
     Name="Set 1 — Enchant 1", Options=ENCHANT_OPTS,
     CurrentOption={cfg.s1e1 or "None"}, MultipleOptions=false, Flag="DS1E1",
-    Callback=function(o) local v=(type(o)=="table") and o[1] or o; cfg.s1e1=(v=="None") and nil or v; saveCfg() end,
+    Callback=function(o) cfg.s1e1=(o[1]=="None") and nil or o[1]; saveCfg() end,
 })
 local DS1E2 = TabDetector:CreateDropdown({
     Name="Set 1 — Enchant 2", Options=ENCHANT_OPTS,
     CurrentOption={cfg.s1e2 or "None"}, MultipleOptions=false, Flag="DS1E2",
-    Callback=function(o) local v=(type(o)=="table") and o[1] or o; cfg.s1e2=(v=="None") and nil or v; saveCfg() end,
+    Callback=function(o) cfg.s1e2=(o[1]=="None") and nil or o[1]; saveCfg() end,
 })
 local DS1E3 = TabDetector:CreateDropdown({
     Name="Set 1 — Enchant 3", Options=ENCHANT_OPTS,
     CurrentOption={cfg.s1e3 or "None"}, MultipleOptions=false, Flag="DS1E3",
-    Callback=function(o) local v=(type(o)=="table") and o[1] or o; cfg.s1e3=(v=="None") and nil or v; saveCfg() end,
+    Callback=function(o) cfg.s1e3=(o[1]=="None") and nil or o[1]; saveCfg() end,
 })
 
 TabDetector:CreateSection("Sword Set 2")
@@ -541,17 +541,17 @@ TabDetector:CreateLabel("Sword must have ALL active enchants in this set.")
 local DS2E1 = TabDetector:CreateDropdown({
     Name="Set 2 — Enchant 1", Options=ENCHANT_OPTS,
     CurrentOption={cfg.s2e1 or "None"}, MultipleOptions=false, Flag="DS2E1",
-    Callback=function(o) local v=(type(o)=="table") and o[1] or o; cfg.s2e1=(v=="None") and nil or v; saveCfg() end,
+    Callback=function(o) cfg.s2e1=(o[1]=="None") and nil or o[1]; saveCfg() end,
 })
 local DS2E2 = TabDetector:CreateDropdown({
     Name="Set 2 — Enchant 2", Options=ENCHANT_OPTS,
     CurrentOption={cfg.s2e2 or "None"}, MultipleOptions=false, Flag="DS2E2",
-    Callback=function(o) local v=(type(o)=="table") and o[1] or o; cfg.s2e2=(v=="None") and nil or v; saveCfg() end,
+    Callback=function(o) cfg.s2e2=(o[1]=="None") and nil or o[1]; saveCfg() end,
 })
 local DS2E3 = TabDetector:CreateDropdown({
     Name="Set 2 — Enchant 3", Options=ENCHANT_OPTS,
     CurrentOption={cfg.s2e3 or "None"}, MultipleOptions=false, Flag="DS2E3",
-    Callback=function(o) local v=(type(o)=="table") and o[1] or o; cfg.s2e3=(v=="None") and nil or v; saveCfg() end,
+    Callback=function(o) cfg.s2e3=(o[1]=="None") and nil or o[1]; saveCfg() end,
 })
 
 TabDetector:CreateSection("Sword Set 3")
@@ -560,17 +560,17 @@ TabDetector:CreateLabel("Sword must have ALL active enchants in this set.")
 local DS3E1 = TabDetector:CreateDropdown({
     Name="Set 3 — Enchant 1", Options=ENCHANT_OPTS,
     CurrentOption={cfg.s3e1 or "None"}, MultipleOptions=false, Flag="DS3E1",
-    Callback=function(o) local v=(type(o)=="table") and o[1] or o; cfg.s3e1=(v=="None") and nil or v; saveCfg() end,
+    Callback=function(o) cfg.s3e1=(o[1]=="None") and nil or o[1]; saveCfg() end,
 })
 local DS3E2 = TabDetector:CreateDropdown({
     Name="Set 3 — Enchant 2", Options=ENCHANT_OPTS,
     CurrentOption={cfg.s3e2 or "None"}, MultipleOptions=false, Flag="DS3E2",
-    Callback=function(o) local v=(type(o)=="table") and o[1] or o; cfg.s3e2=(v=="None") and nil or v; saveCfg() end,
+    Callback=function(o) cfg.s3e2=(o[1]=="None") and nil or o[1]; saveCfg() end,
 })
 local DS3E3 = TabDetector:CreateDropdown({
     Name="Set 3 — Enchant 3", Options=ENCHANT_OPTS,
     CurrentOption={cfg.s3e3 or "None"}, MultipleOptions=false, Flag="DS3E3",
-    Callback=function(o) local v=(type(o)=="table") and o[1] or o; cfg.s3e3=(v=="None") and nil or v; saveCfg() end,
+    Callback=function(o) cfg.s3e3=(o[1]=="None") and nil or o[1]; saveCfg() end,
 })
 
 TabDetector:CreateSection("Options")
