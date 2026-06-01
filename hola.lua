@@ -54,9 +54,9 @@ local DEFAULT_CONFIG = {
     -- Set 1
     s1e1 = "Ancient", s1e2 = "Insight", s1e3 = "Fortune",
     -- Set 2
-    s2e1 = nil, s2e2 = nil, s2e3 = nil,
+    s2e1 = "Ancient", s2e2 = "Insight", s2e3 = "Fortune",
     -- Set 3
-    s3e1 = nil, s3e2 = nil, s3e3 = nil,
+    s3e1 = "Ancient", s3e2 = "Insight", s3e3 = "Fortune",
 
     autoTP       = true,
     notifyAll    = false,
