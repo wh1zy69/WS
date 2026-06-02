@@ -19,6 +19,16 @@ local Folder          = workspace:WaitForChild("Swords")
 local paper = nil
 pcall(function() paper = require(ReplicatedStorage:WaitForChild("Paper", 10)) end)
 
+-- Zona de venta (igual que el script de referencia: check de distancia)
+local maxdistance = 30
+local sellsmain = nil
+pcall(function()
+    local bases = workspace:WaitForChild("Bases", 10)
+    local base  = bases and bases:WaitForChild(MyName, 10)
+    local sells = base and base:WaitForChild("SellStation", 10)
+    sellsmain   = sells and sells:WaitForChild("Main", 10)
+end)
+
 -- ============================================================
 -- EXECUTOR HTTP
 -- ============================================================
@@ -969,38 +979,31 @@ local function getEnchantNames(sword)
 end
 
 -- Returns the set number that matched (1, 2, or 3), or nil
-local function matchesAnySet(sword)
-    local sets = {
-        { cfg.s1e1, cfg.s1e2, cfg.s1e3 },
-        { cfg.s2e1, cfg.s2e2, cfg.s2e3 },
-        { cfg.s3e1, cfg.s3e2, cfg.s3e3 },
-    }
-    local enchants = getEnchantNames(sword)
-
-    -- Conteo de enchants que tiene la espada (cuenta duplicados)
-    local swordCnt = {}
-    for _, e in ipairs(enchants) do
-        swordCnt[e] = (swordCnt[e] or 0) + 1
-    end
-
-    for setIdx, setEnchants in ipairs(sets) do
-        -- Conteo de enchants activos del set (cuenta duplicados, ignora "None")
-        local filterCnt, filterTotal = {}, 0
-        for _, v in ipairs(setEnchants) do
-            if v and v ~= "" and v ~= "None" then
-                local lv = v:lower()
-                filterCnt[lv] = (filterCnt[lv] or 0) + 1
-                filterTotal += 1
+-- Devuelve el nº de set que coincide, o nil.
+-- Lógica del script de referencia (combinaciones): para CADA enchant listado
+-- en el set, la espada debe tener EXACTAMENTE esa cantidad.
+--   Set "Ancient,Ancient,Fortune" -> {ancient=2, fortune=1} -> exige 2 ancient + 1 fortune
+--   Set "Fortune,None,None"       -> {fortune=1}            -> exige exactamente 1 fortune
+local function matchCombos(allenchants)
+    for setNum = 1, 3 do
+        local combo, count = {}, 0
+        for _, key in ipairs({ "s"..setNum.."e1", "s"..setNum.."e2", "s"..setNum.."e3" }) do
+            local v = cfg[key]
+            if v and v ~= "" and tostring(v):lower() ~= "none" then
+                local lv = tostring(v):lower()
+                combo[lv] = (combo[lv] or 0) + 1
+                count += 1
             end
         end
-        -- MATCH: la espada debe tener AL MENOS esa cantidad de cada enchant
-        -- (se permiten enchants extra; las cantidades sí cuentan)
-        if filterTotal > 0 then
-            local ok = true
-            for name, cnt in pairs(filterCnt) do
-                if (swordCnt[name] or 0) < cnt then ok = false; break end
+        if count > 0 then
+            local result = true
+            for enchant, amount in pairs(combo) do
+                if (allenchants[enchant] or 0) ~= amount then
+                    result = false
+                    break
+                end
             end
-            if ok then return setIdx end
+            if result then return setNum end
         end
     end
     return nil
@@ -1008,84 +1011,93 @@ end
 
 local function procesarEspada(sword)
     task.spawn(function()
+        if finding4x then return end
         if not sword or not sword.Parent then return end
 
-        local attr = {}
-        for i = 1, 100 do
-            if not sword.Parent then return end
-            attr = sword:GetAttributes()
-            if  attr.Rarity  and attr.Rarity  >  0
-            and attr.Quality and attr.Quality >  0
-            and attr.Level   and attr.Level   >  1 then break end
-            task.wait(0.2)
-        end
+        -- Esperar la parte Main (igual que el script de referencia)
+        local main, n = nil, 0
+        repeat
+            main = sword:FindFirstChild("Main")
+            n += 1
+            task.wait()
+        until n >= 1000 or main
+        if not main then return end
 
-        local itemInfo = nil
-        for i = 1, 25 do
-            if not sword.Parent then return end
-            itemInfo = sword:FindFirstChild("ItemInfo", true)
-            if itemInfo and itemInfo:FindFirstChild("Level") then break end
-            task.wait(0.2)
-        end
+        local gui = main:WaitForChild("Gui", 10)
+        if not gui then return end
+        local itemInfo = gui:WaitForChild("ItemInfo", 10)
         if not itemInfo then return end
 
-        -- Dueño por NOMBRE (label "Username"), no por UserId de atributos.
-        -- Es el método fiable: cada cuenta detecta solo SUS espadas.
-        local ownerLabel = itemInfo:FindFirstChild("Username")
-        for i = 1, 25 do
-            if ownerLabel and ownerLabel.Text ~= "" then break end
-            task.wait(0.2)
-            ownerLabel = itemInfo:FindFirstChild("Username")
-        end
-        if not ownerLabel or ownerLabel.Text ~= MyName then return end
+        -- Dueño por NOMBRE
+        local swordowner = itemInfo:WaitForChild("Username", 5)
+        if not swordowner or swordowner.Text ~= MyName then return end
 
-        local levelLabel = itemInfo:FindFirstChild("Level")
-        local finalLevel = "Level " .. tostring(attr.Level)
-        if levelLabel then
-            local last, stable = "", 0
-            for i = 1, 30 do
-                local t = levelLabel.Text
-                if t ~= "" and t ~= "Level 1" and t ~= "Level" then
-                    if t == last then
-                        stable += 1
-                        if stable >= 3 then finalLevel = t; break end
-                    else stable = 0; last = t end
-                end
-                task.wait(0.2)
+        -- Esperar a que la espada entre en estado de venta
+        local selling = itemInfo:WaitForChild("Selling", 5)
+        if not selling then return end
+        selling:GetPropertyChangedSignal("Text"):Wait()
+
+        -- Solo seguir si la espada está en la zona de venta (check de distancia)
+        if sellsmain then
+            local distance = (sellsmain.Position - main.Position).Magnitude
+            if distance > maxdistance then
+                if cfg.showAll then print("[Whizy] espada lejos de la venta, ignorada") end
+                return
             end
         end
 
-        local enchants = getEnchantNames(sword)
-        local enchStr  = #enchants > 0 and table.concat(enchants, " | ") or "no enchants"
+        -- Leer los 3 enchants (Enchant1/2/3) y contarlos
+        local enchF = itemInfo:WaitForChild("Enchants", 5)
+        if not enchF then return end
+        local e1 = enchF:WaitForChild("Enchant1", 3)
+        local e2 = enchF:WaitForChild("Enchant2", 3)
+        local e3 = enchF:WaitForChild("Enchant3", 3)
+        if not (e1 and e2 and e3) then return end
+        local e1t = string.lower(e1.Text):match("^(%S+)")
+        local e2t = string.lower(e2.Text):match("^(%S+)")
+        local e3t = string.lower(e3.Text):match("^(%S+)")
+        if not (e1t and e2t and e3t) then return end
+
+        local allenchants = {}
+        for _, e in ipairs({ e1t, e2t, e3t }) do
+            allenchants[e] = (allenchants[e] or 0) + 1
+        end
+
+        -- Datos extra para el webhook (mejor esfuerzo desde atributos)
+        local attr = sword:GetAttributes()
+        local levelLabel = itemInfo:FindFirstChild("Level")
+        local finalLevel = (levelLabel and levelLabel.Text ~= "" and levelLabel.Text)
+                           or ("Level " .. tostring(attr.Level or "?"))
+
+        local enchList = {}
+        for _, e in ipairs({ e1t, e2t, e3t }) do
+            if e ~= "none" then table.insert(enchList, e) end
+        end
+        local enchStr = #enchList > 0 and table.concat(enchList, " | ") or "no enchants"
 
         stats.total += 1
-        if #enchants > 0 then stats.withEnchants += 1 end
+        stats.withEnchants += 1
         updateStats()
 
         if cfg.showAll then
-            print("================================")
-            print("SWORD: "    .. finalLevel)
-            print("Rarity: "   .. tostring(attr.Rarity) .. "  Quality: " .. tostring(attr.Quality))
-            print("Value: "    .. tostring(attr.Value))
-            print("Enchants: " .. enchStr)
-            print("================================")
+            print("==== SWORD ==== " .. finalLevel .. "  |  " .. enchStr)
         end
 
         setStatus("Detected: " .. finalLevel)
 
-        local matchedSet = matchesAnySet(sword)
+        local matchedSet = matchCombos(allenchants)
         if matchedSet then
             setStatus("MATCH (Set "..matchedSet..")! " .. enchStr)
             Rayfield:Notify({
-                Title   = "Match found! (Set " .. matchedSet .. ")",
-                Content = finalLevel .. "\n" .. enchStr,
+                Title    = "Match found! (Set " .. matchedSet .. ")",
+                Content  = finalLevel .. "\n" .. enchStr,
                 Duration = 6, Image = "zap",
             })
             task.spawn(function()
                 sendWebhook({
                     level   = finalLevel,
                     target  = { cfg["s"..matchedSet.."e1"], cfg["s"..matchedSet.."e2"], cfg["s"..matchedSet.."e3"] },
-                    actual  = enchants,
+                    actual  = enchList,
                     rarity  = attr.Rarity,
                     quality = attr.Quality,
                     id      = attr.ID or attr.Id or attr.UUID or attr.GUID or sword.Name,
@@ -1107,6 +1119,12 @@ end
 -- START
 -- ============================================================
 Folder.ChildAdded:Connect(procesarEspada)
+
+-- Posicionarse en la zona de venta (como el script de referencia hace al iniciar).
+-- Necesario para que el agarre y el check de distancia funcionen bien.
+if cfg.autoTP and paper then
+    pcall(function() paper.Network.InvokeServer("Teleport In Base", "Sell") end)
+end
 
 if cfg.antiAfk then startAntiAfk() end
 if cfg.autoRejoin then startRejoin() end
