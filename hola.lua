@@ -935,10 +935,9 @@ local function matchesAnySet(sword)
     local enchants = getEnchantNames(sword)
 
     -- Conteo de enchants que tiene la espada (cuenta duplicados)
-    local swordCnt, swordTotal = {}, 0
+    local swordCnt = {}
     for _, e in ipairs(enchants) do
         swordCnt[e] = (swordCnt[e] or 0) + 1
-        swordTotal += 1
     end
 
     for setIdx, setEnchants in ipairs(sets) do
@@ -951,13 +950,14 @@ local function matchesAnySet(sword)
                 filterTotal += 1
             end
         end
-        -- MATCH EXACTO: mismo total Y misma cantidad de cada enchant (sin extras)
-        if filterTotal > 0 and filterTotal == swordTotal then
-            local equal = true
+        -- MATCH: la espada debe tener AL MENOS esa cantidad de cada enchant
+        -- (se permiten enchants extra; las cantidades sí cuentan)
+        if filterTotal > 0 then
+            local ok = true
             for name, cnt in pairs(filterCnt) do
-                if swordCnt[name] ~= cnt then equal = false; break end
+                if (swordCnt[name] or 0) < cnt then ok = false; break end
             end
-            if equal then return setIdx end
+            if ok then return setIdx end
         end
     end
     return nil
