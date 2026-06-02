@@ -9,10 +9,15 @@ local HttpService     = game:GetService("HttpService")
 local UIS             = game:GetService("UserInputService")
 local TeleportService = game:GetService("TeleportService")
 local VirtualUser     = game:GetService("VirtualUser")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Player          = Players.LocalPlayer
 local MyID            = Player.UserId
 local MyName          = Player.Name
 local Folder          = workspace:WaitForChild("Swords")
+
+-- Framework del juego (para teletransportar con el remote real)
+local paper = nil
+pcall(function() paper = require(ReplicatedStorage:WaitForChild("Paper", 10)) end)
 
 -- ============================================================
 -- EXECUTOR HTTP
@@ -216,23 +221,35 @@ local function doTP(sword)
     if isTping then return end
     isTping = true
     local ok, err = pcall(function()
-        local char = Player.Character
-        if not char then error("no char") end
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        if not hrp then error("no hrp") end
-        local originalCF = hrp.CFrame
-        local swordPos   = sword:GetPivot().Position + Vector3.new(0, 5, 0)
-        hrp.CFrame = CFrame.new(swordPos)
+        local main = sword:FindFirstChild("Main")
+        if not main then error("no Main part") end
+
         stats.tpCount += 1
         updateStats()
-        setStatus("Teleported! Returning in 1s...")
-        task.wait(1)
-        local char2 = Player.Character
-        if not char2 then error("no char2") end
-        local hrp2 = char2:FindFirstChild("HumanoidRootPart")
-        if not hrp2 then error("no hrp2") end
-        for i = 1, 5 do hrp2.CFrame = originalCF; task.wait(0.1) end
-        setStatus("Returned. Waiting for swords...")
+        setStatus("Grabbing sword...")
+
+        -- Mover el personaje ENCIMA de la espada en bucle hasta que desaparece
+        -- (se recoge). Es el método que usa el script que funciona.
+        local gone, tries = false, 0
+        repeat
+            local char = Player.Character
+            if char and main and main.Parent then
+                char:MoveTo(main.Position + Vector3.new(0, 6, 0))
+            end
+            if (not sword) or sword.Parent == nil or (not main) or main.Parent == nil then
+                gone = true
+            else
+                task.wait(0.5)
+            end
+            tries += 1
+        until gone or tries >= 40
+
+        -- Volver a la zona de venta con el remote real del juego
+        if paper then
+            pcall(function() paper.Network.InvokeServer("Teleport In Base", "Sell") end)
+            pcall(function() paper.Network.InvokeServer("Teleport In Base", "Sell") end)
+        end
+        setStatus("Done. Waiting for swords...")
     end)
     if not ok then
         warn("[Whizy] doTP error: " .. tostring(err))
@@ -929,10 +946,23 @@ local function getEnchantNames(sword)
     local encFolder = itemInfo:FindFirstChild("Enchants")
     if not encFolder then return {} end
     local result = {}
-    for _, lbl in pairs(encFolder:GetChildren()) do
-        if lbl:IsA("TextLabel") and lbl.Text ~= "" then
-            local name = lbl.Text:match("^(%a+)")
-            if name then table.insert(result, name:lower()) end
+    -- Igual que el script que funciona: Enchant1/2/3 y el primer token en minúsculas
+    for i = 1, 3 do
+        local lbl = encFolder:FindFirstChild("Enchant" .. i)
+        if lbl and lbl.Text ~= "" then
+            local name = string.lower(lbl.Text):match("^(%S+)")
+            if name and name ~= "" and name ~= "none" then
+                table.insert(result, name)
+            end
+        end
+    end
+    -- Fallback por si no existen Enchant1/2/3: iterar los labels
+    if #result == 0 then
+        for _, lbl in pairs(encFolder:GetChildren()) do
+            if lbl:IsA("TextLabel") and lbl.Text ~= "" then
+                local name = lbl.Text:match("^(%a+)")
+                if name then table.insert(result, name:lower()) end
+            end
         end
     end
     return result
