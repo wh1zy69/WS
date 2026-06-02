@@ -844,45 +844,58 @@ local function cleanText(s)
     return (s == "" and "Unknown") or s
 end
 
--- Pone los enchants bonitos: "fortune | ancient" -> "Fortune • Ancient"
-local function prettyEnchants(str)
-    if not str or str == "" or str == "no enchants" then return "None" end
-    local parts = {}
-    for word in str:gmatch("[^|]+") do
-        word = word:gsub("^%s*(.-)%s*$", "%1")
-        if word ~= "" then
-            word = word:sub(1,1):upper() .. word:sub(2)
-            table.insert(parts, word)
-        end
-    end
-    return #parts > 0 and table.concat(parts, "  •  ") or "None"
+-- Capitaliza un enchant: "ancient" -> "Ancient"
+local function cap(w)
+    if not w or w == "" then return nil end
+    return w:sub(1,1):upper() .. w:sub(2):lower()
 end
 
-local function sendWebhook(level, enchStr, rarity, quality, value, setNum)
+-- Formatea 3 slots como "1: X\n2: Y\n3: Z" (— si está vacío)
+local function fmtSlots(list)
+    local lines = {}
+    for i = 1, 3 do
+        local v = list[i]
+        if v and v ~= "" and tostring(v):lower() ~= "none" then
+            v = cap(tostring(v))
+        else
+            v = "—"
+        end
+        table.insert(lines, "`" .. i .. ":` " .. v)
+    end
+    return table.concat(lines, "\n")
+end
+
+-- info = { level, target = {e1,e2,e3}, actual = {..}, rarity, quality, id, creator, setNum }
+local function sendWebhook(info)
     if not cfg.webhookOn or not cfg.webhookURL or cfg.webhookURL=="" then return end
     if not httpRequest then return end
 
-    local cleanLevel = cleanText(level)
-    local enchPretty = prettyEnchants(enchStr)
+    local cleanLevel = cleanText(info.level)
+    local idStr   = tostring(info.id or "?")
+    local idShort = #idStr > 10 and (idStr:sub(1,10) .. "...") or idStr
 
     local body = HttpService:JSONEncode({
         content  = cfg.pingEveryone and "@everyone" or "",
         username = "Whizy • Sword Factory X",
         embeds   = {{
-            author      = { name = "⚔️  Sword Match Detected" },
-            title       = "✨  " .. cleanLevel,
-            description = "Una espada que coincide con **Set " .. setNum .. "** ha aparecido en tu fábrica.",
-            color       = 10038786,  -- morado vibrante
+            title = "🌟  God Roll Sniped!",
+            color = 16766720,  -- dorado
             fields = {
-                { name = "🔮  Enchants", value = enchPretty,                       inline = false },
-                { name = "💎  Rarity",   value = "`" .. tostring(rarity)  .. "`",   inline = true  },
-                { name = "⭐  Quality",  value = "`" .. tostring(quality) .. "`",   inline = true  },
-                { name = "💰  Value",    value = "`" .. tostring(value)   .. "`",   inline = true  },
-                { name = "🎯  Set",      value = "`Set " .. setNum .. "`",          inline = true  },
-                { name = "👤  Player",   value = "`" .. MyName .. "`",              inline = true  },
+                { name = "🎯  Matched Logic",
+                  value = "**Set " .. info.setNum .. "** Detector",
+                  inline = false },
+
+                { name = "📝  Target Enchants", value = fmtSlots(info.target), inline = true },
+                { name = "💥  Actual Roll",     value = fmtSlots(info.actual), inline = true },
+
+                { name = "🛡️  Sword Info",
+                  value = "**ID:** `" .. idShort .. "`\n"
+                       .. "**Creator:** " .. tostring(info.creator or "?") .. "\n"
+                       .. "**Level:** " .. cleanLevel .. "\n"
+                       .. "**Rarity:** " .. tostring(info.rarity) .. "   **Quality:** " .. tostring(info.quality),
+                  inline = false },
             },
-            footer    = { text = "Whizy v10.0  •  Sword Factory X" },
-            timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ"),
+            footer = { text = "Whizy User Analytics  |  " .. os.date("!%Y-%m-%d %H:%M:%S") },
         }}
     })
     local ok = pcall(function()
@@ -1031,7 +1044,18 @@ local function procesarEspada(sword)
                 Content = finalLevel .. "\n" .. enchStr,
                 Duration = 6, Image = "zap",
             })
-            task.spawn(function() sendWebhook(finalLevel, enchStr, attr.Rarity, attr.Quality, attr.Value, matchedSet) end)
+            task.spawn(function()
+                sendWebhook({
+                    level   = finalLevel,
+                    target  = { cfg["s"..matchedSet.."e1"], cfg["s"..matchedSet.."e2"], cfg["s"..matchedSet.."e3"] },
+                    actual  = enchants,
+                    rarity  = attr.Rarity,
+                    quality = attr.Quality,
+                    id      = attr.ID or attr.Id or attr.UUID or attr.GUID or sword.Name,
+                    creator = attr.Creator or attr.Owner,
+                    setNum  = matchedSet,
+                })
+            end)
             if cfg.autoTP then doTP(sword) end
         elseif cfg.notifyAll then
             Rayfield:Notify({
